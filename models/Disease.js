@@ -5,7 +5,7 @@ const diseaseSchema = mongoose.Schema(
     name: {
       type: String,
       required: true,
-      unique: true, // عشان المرض ميتكررش
+      unique: true, 
     },
     symptoms: {
       type: String,

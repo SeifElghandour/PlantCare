@@ -1735,12 +1735,12 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .password-wrapper .password-input {
-    padding-right: 44px;
+    padding-inline-end: 44px;
 }
 
 .password-toggle {
     position: absolute;
-    right: 12px;
+    inset-inline-end: 12px;
     top: 50%;
     transform: translateY(-50%);
     display: flex;
@@ -2189,14 +2189,14 @@ html[dir="rtl"] .footer-grid {
 
 html[dir="rtl"] .form-input-wrapper svg,
 html[dir="rtl"] .form-input-wrapper .password-toggle {
-    left: auto;
-    right: 14px;
+    inset-inline-start: auto;
+    inset-inline-end: 14px;
 }
 
 html[dir="rtl"] .form-input,
 html[dir="rtl"] .password-wrapper .password-input {
-    padding-left: 14px;
-    padding-right: 44px;
+    padding-inline-start: 14px;
+    padding-inline-end: 44px;
 }
 
 html[dir="rtl"] .nav-link,

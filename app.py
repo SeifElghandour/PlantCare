@@ -49,6 +49,7 @@ MODEL_CANDIDATES = [
 model = None
 for model_path in MODEL_CANDIDATES:
     if not os.path.exists(model_path):
+        print(f"Model file not found: {model_path}")
         continue
     try:
         model = tf.keras.models.load_model(
@@ -68,9 +69,17 @@ for model_path in MODEL_CANDIDATES:
         break
     except Exception as exc:
         print(f"Failed to load {model_path}: {exc}")
+        import traceback
+        traceback.print_exc()
 
 if model is None:
-    print("Warning: No AI model loaded. /predict will return mock responses.")
+    print("=" * 50)
+    print("CRITICAL ERROR: No AI model loaded!")
+    print("Available model paths checked:")
+    for model_path in MODEL_CANDIDATES:
+        print(f"  - {model_path} (exists: {os.path.exists(model_path)})")
+    print("=" * 50)
+    raise RuntimeError("Failed to load AI model. Check the error logs above for details.")
 
 CLASSES = [
     "Apple___Apple_scab",
@@ -145,7 +154,7 @@ def test_isolation():
     If this returns the same prediction as real images, the model is corrupted/hardcoded.
     """
     if model is None:
-        return jsonify({"error": "Model not loaded"}), 500
+        return jsonify({"error": "Model not loaded - check server logs for loading error"}), 500
 
     try:
         # Create a synthetic image: solid green (224x224 RGB)
@@ -210,8 +219,8 @@ def predict():
             return jsonify({"error": "Uploaded image is empty."}), 400
 
         if model is None:
-            print("ERROR: Model not loaded, returning mock prediction")
-            return jsonify({**MOCK_PREDICTION, "mock": True})
+            print("ERROR: Model not loaded - server startup failed")
+            return jsonify({"error": "AI model not loaded. Check server logs for loading error details."}), 500
 
         processed_image = prepare_image(image_bytes)
         print(f"Input tensor shape: {processed_image.shape}, dtype: {processed_image.dtype}, min: {processed_image.min():.3f}, max: {processed_image.max():.3f}")

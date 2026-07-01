@@ -3,10 +3,10 @@ import os
 import gc
 
 import numpy as np
-import tensorflow as tf
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from PIL import Image
+import tflite_runtime.interpreter as tflite
 
 app = Flask(__name__)
 CORS(
@@ -31,53 +31,53 @@ CORS(
 )
 
 
-@tf.keras.utils.register_keras_serializable()
-class Cast(tf.keras.layers.Layer):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-    def call(self, inputs):
-        return tf.cast(inputs, tf.float32)
-
-
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_CANDIDATES = [
+    os.path.join(BASE_DIR, "plant_model.tflite"),
     os.path.join(BASE_DIR, "plant_model.keras"),
     os.path.join(BASE_DIR, "plant_model.h5"),
 ]
 
-model = None
+interpreter = None
+input_details = None
+output_details = None
+
 for model_path in MODEL_CANDIDATES:
     if not os.path.exists(model_path):
         print(f"Model file not found: {model_path}")
         continue
+    
     try:
-        model = tf.keras.models.load_model(
-            model_path,
-            custom_objects={"Cast": Cast},
-            compile=False,
-        )
-        print(f"Model loaded successfully from {model_path}")
-        print("=" * 50)
-        print("MODEL ARCHITECTURE SUMMARY:")
-        model.summary()
-        print("=" * 50)
-        print(f"Model input shape: {model.input_shape}")
-        print(f"Model output shape: {model.output_shape}")
-        print(f"Total parameters: {model.count_params():,}")
-        print("=" * 50)
-        break
+        if model_path.endswith('.tflite'):
+            interpreter = tflite.Interpreter(model_path=model_path)
+            interpreter.allocate_tensors()
+            input_details = interpreter.get_input_details()
+            output_details = interpreter.get_output_details()
+            print(f"TFLite model loaded successfully from {model_path}")
+            print("=" * 50)
+            print("MODEL DETAILS:")
+            print(f"Input shape: {input_details[0]['shape']}")
+            print(f"Input dtype: {input_details[0]['dtype']}")
+            print(f"Output shape: {output_details[0]['shape']}")
+            print(f"Output dtype: {output_details[0]['dtype']}")
+            print("=" * 50)
+            break
+        else:
+            print(f"Skipping non-TFLite model: {model_path}")
+            print("Please convert to TFLite using: python convert_to_tflite.py")
     except Exception as exc:
         print(f"Failed to load {model_path}: {exc}")
         import traceback
         traceback.print_exc()
 
-if model is None:
+if interpreter is None:
     print("=" * 50)
     print("CRITICAL ERROR: No AI model loaded!")
     print("Available model paths checked:")
     for model_path in MODEL_CANDIDATES:
         print(f"  - {model_path} (exists: {os.path.exists(model_path)})")
+    print("=" * 50)
+    print("To convert plant_model.keras to TFLite, run: python convert_to_tflite.py")
     print("=" * 50)
     raise RuntimeError("Failed to load AI model. Check the error logs above for details.")
 
@@ -173,8 +173,14 @@ def test_isolation():
         print("[ISOLATION TEST] Synthetic green image loaded")
         print(f"[ISOLATION TEST] Input shape: {processed_image.shape}, mean: {processed_image.mean():.3f}")
         
-        raw_predictions = model.predict(processed_image, verbose=0)
-        probabilities = tf.nn.softmax(raw_predictions[0]).numpy()
+        # TFLite inference
+        interpreter.set_tensor(input_details[0]['index'], processed_image)
+        interpreter.invoke()
+        raw_predictions = interpreter.get_tensor(output_details[0]['index'])
+        
+        # Manual softmax
+        exp_preds = np.exp(raw_predictions[0] - np.max(raw_predictions[0]))
+        probabilities = exp_preds / np.sum(exp_preds)
         
         class_idx = int(np.argmax(probabilities))
         confidence = float(probabilities[class_idx]) * 100
@@ -218,17 +224,24 @@ def predict():
         if not image_bytes:
             return jsonify({"error": "Uploaded image is empty."}), 400
 
-        if model is None:
+        if interpreter is None:
             print("ERROR: Model not loaded - server startup failed")
             return jsonify({"error": "AI model not loaded. Check server logs for loading error details."}), 500
 
         processed_image = prepare_image(image_bytes)
         print(f"Input tensor shape: {processed_image.shape}, dtype: {processed_image.dtype}, min: {processed_image.min():.3f}, max: {processed_image.max():.3f}")
         
-        raw_predictions = model.predict(processed_image, verbose=0)
+        # TFLite inference
+        interpreter.set_tensor(input_details[0]['index'], processed_image)
+        interpreter.invoke()
+        raw_predictions = interpreter.get_tensor(output_details[0]['index'])
+        
         print(f"Raw predictions shape: {raw_predictions.shape}, raw values: {raw_predictions[0][:5]}")
         
-        probabilities = tf.nn.softmax(raw_predictions[0]).numpy()
+        # Apply softmax manually since TFLite doesn't include it by default
+        exp_preds = np.exp(raw_predictions[0] - np.max(raw_predictions[0]))
+        probabilities = exp_preds / np.sum(exp_preds)
+        
         print(f"Softmax probabilities - min: {probabilities.min():.6f}, max: {probabilities.max():.6f}")
 
         class_idx = int(np.argmax(probabilities))
